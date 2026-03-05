@@ -1,0 +1,1327 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Simulation Planification — A* + Chaînes de Markov</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Syne:wght@400;600;700;800&display=swap');
+
+  :root {
+    --navy:   #0B1F3A;
+    --blue:   #1A3A5C;
+    --lblue:  #2E86AB;
+    --cyan:   #4FC3F7;
+    --gold:   #F4A261;
+    --green:  #3BB273;
+    --red:    #E84855;
+    --purple: #9B5DE5;
+    --gray:   #F4F6F9;
+    --dgray:  #5A6A7A;
+    --light:  #EBF4FA;
+    --bg:     #060D1A;
+    --panel:  #0D1E35;
+    --card:   #122844;
+    --border: #1E3A5F;
+
+    --ucs-color:    #F4A261;
+    --greedy-color: #E84855;
+    --astar-color:  #4FC3F7;
+    --wastar-color: #3BB273;
+    --mc-color:     #9B5DE5;
+
+    --cell: 28px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: #E0EAF5;
+    font-family: 'Syne', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── Background starfield ── */
+  body::before {
+    content: '';
+    position: fixed; inset: 0; z-index: 0;
+    background-image:
+      radial-gradient(1px 1px at 20% 30%, rgba(79,195,247,0.3) 0%, transparent 100%),
+      radial-gradient(1px 1px at 70% 15%, rgba(155,93,229,0.25) 0%, transparent 100%),
+      radial-gradient(1px 1px at 45% 80%, rgba(59,178,115,0.2) 0%, transparent 100%),
+      radial-gradient(600px at 0% 0%, rgba(42,86,156,0.12) 0%, transparent 60%),
+      radial-gradient(600px at 100% 100%, rgba(27,50,85,0.15) 0%, transparent 60%);
+    pointer-events: none;
+  }
+
+  .wrap { position: relative; z-index: 1; max-width: 1400px; margin: 0 auto; padding: 20px; }
+
+  /* ── Header ── */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 18px 28px; margin-bottom: 20px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: 0 4px 32px rgba(0,0,0,0.4);
+  }
+  .header-left h1 {
+    font-size: 1.35rem; font-weight: 800; letter-spacing: -0.02em;
+    background: linear-gradient(135deg, var(--cyan), var(--gold));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .header-left p { font-size: 0.75rem; color: var(--dgray); margin-top: 2px; font-family: 'JetBrains Mono', monospace; }
+  .header-badges { display: flex; gap: 8px; flex-wrap: wrap; }
+  .badge {
+    padding: 4px 10px; border-radius: 20px; font-size: 0.68rem;
+    font-family: 'JetBrains Mono', monospace; font-weight: 600; letter-spacing: 0.04em;
+    border: 1px solid;
+  }
+  .badge-lblue { background: rgba(46,134,171,0.15); border-color: var(--lblue); color: var(--cyan); }
+  .badge-gold  { background: rgba(244,162,97,0.15);  border-color: var(--gold);  color: var(--gold); }
+  .badge-green { background: rgba(59,178,115,0.15);  border-color: var(--green); color: var(--green); }
+
+  /* ── Main grid layout ── */
+  .main {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    gap: 16px;
+    align-items: start;
+  }
+
+  /* ── Panel cards ── */
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px;
+  }
+  .card-title {
+    font-size: 0.72rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--dgray); margin-bottom: 14px; display: flex; align-items: center; gap: 8px;
+  }
+  .card-title::before {
+    content: ''; display: block; width: 3px; height: 14px;
+    background: linear-gradient(to bottom, var(--cyan), var(--lblue));
+    border-radius: 2px;
+  }
+
+  /* ── Grid canvas area ── */
+  .grid-area { display: flex; flex-direction: column; gap: 14px; }
+  .grid-canvas-wrap {
+    position: relative;
+    display: flex; justify-content: center;
+    padding: 12px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  #gridCanvas {
+    display: block;
+    cursor: crosshair;
+    border-radius: 4px;
+    image-rendering: pixelated;
+  }
+
+  /* ── Algo tabs ── */
+  .algo-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+  .algo-tab {
+    padding: 6px 14px; border-radius: 8px; font-size: 0.75rem; font-weight: 700;
+    font-family: 'JetBrains Mono', monospace; cursor: pointer;
+    border: 1.5px solid transparent;
+    transition: all 0.2s;
+    background: var(--card);
+    color: var(--dgray);
+  }
+  .algo-tab:hover { color: white; }
+  .algo-tab.active { color: white; }
+  .algo-tab[data-algo="ucs"].active    { border-color: var(--ucs-color);    background: rgba(244,162,97,0.15);    color: var(--ucs-color); }
+  .algo-tab[data-algo="greedy"].active { border-color: var(--greedy-color); background: rgba(232,72,85,0.15);     color: var(--greedy-color); }
+  .algo-tab[data-algo="astar"].active  { border-color: var(--astar-color);  background: rgba(79,195,247,0.15);    color: var(--astar-color); }
+  .algo-tab[data-algo="wastar"].active { border-color: var(--wastar-color); background: rgba(59,178,115,0.15);    color: var(--wastar-color); }
+  .algo-tab[data-algo="mc"].active     { border-color: var(--mc-color);     background: rgba(155,93,229,0.15);    color: var(--mc-color); }
+
+  /* ── Controls ── */
+  .controls-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .ctrl-group { display: flex; flex-direction: column; gap: 5px; }
+  .ctrl-label {
+    font-size: 0.68rem; font-weight: 600; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--dgray);
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .ctrl-row { display: flex; align-items: center; gap: 8px; }
+  .ctrl-val {
+    font-family: 'JetBrains Mono', monospace; font-size: 0.8rem;
+    color: var(--cyan); min-width: 36px; text-align: right; font-weight: 600;
+  }
+
+  input[type=range] {
+    -webkit-appearance: none; width: 100%; height: 4px;
+    background: var(--border); border-radius: 2px; outline: none;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%;
+    background: var(--cyan); cursor: pointer;
+    box-shadow: 0 0 8px rgba(79,195,247,0.6);
+  }
+  input[type=range].gold::-webkit-slider-thumb { background: var(--gold); box-shadow: 0 0 8px rgba(244,162,97,0.6); }
+  input[type=range].green::-webkit-slider-thumb { background: var(--green); box-shadow: 0 0 8px rgba(59,178,115,0.6); }
+
+  select {
+    background: var(--card); border: 1px solid var(--border); color: var(--cyan);
+    font-family: 'JetBrains Mono', monospace; font-size: 0.78rem;
+    padding: 5px 10px; border-radius: 6px; width: 100%; outline: none; cursor: pointer;
+  }
+  select:focus { border-color: var(--lblue); }
+
+  /* ── Buttons ── */
+  .btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+  .btn {
+    padding: 8px 16px; border-radius: 8px; font-size: 0.78rem; font-weight: 700;
+    font-family: 'JetBrains Mono', monospace; cursor: pointer; border: 1.5px solid;
+    transition: all 0.18s; letter-spacing: 0.02em;
+  }
+  .btn-primary {
+    background: rgba(79,195,247,0.15); border-color: var(--lblue); color: var(--cyan);
+  }
+  .btn-primary:hover { background: rgba(79,195,247,0.28); box-shadow: 0 0 14px rgba(79,195,247,0.3); }
+  .btn-run {
+    background: linear-gradient(135deg, rgba(46,134,171,0.3), rgba(79,195,247,0.2));
+    border-color: var(--cyan); color: white; flex: 1;
+  }
+  .btn-run:hover { background: linear-gradient(135deg, rgba(46,134,171,0.5), rgba(79,195,247,0.35)); transform: translateY(-1px); }
+  .btn-run:active { transform: translateY(0); }
+  .btn-danger { background: rgba(232,72,85,0.12); border-color: var(--red); color: var(--red); }
+  .btn-danger:hover { background: rgba(232,72,85,0.25); }
+  .btn-gold { background: rgba(244,162,97,0.12); border-color: var(--gold); color: var(--gold); }
+  .btn-gold:hover { background: rgba(244,162,97,0.25); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none !important; }
+
+  /* ── Stats panel ── */
+  .stats-col { display: flex; flex-direction: column; gap: 12px; }
+
+  .stat-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 14px; position: relative; overflow: hidden;
+  }
+  .stat-card::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  }
+  .stat-card.ucs::before    { background: var(--ucs-color); }
+  .stat-card.greedy::before { background: var(--greedy-color); }
+  .stat-card.astar::before  { background: var(--astar-color); }
+  .stat-card.wastar::before { background: var(--wastar-color); }
+  .stat-card.mc::before     { background: var(--mc-color); }
+
+  .stat-algo-name {
+    font-size: 0.7rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
+    margin-bottom: 8px; font-family: 'JetBrains Mono', monospace;
+  }
+  .stat-card.ucs .stat-algo-name    { color: var(--ucs-color); }
+  .stat-card.greedy .stat-algo-name { color: var(--greedy-color); }
+  .stat-card.astar .stat-algo-name  { color: var(--astar-color); }
+  .stat-card.wastar .stat-algo-name { color: var(--wastar-color); }
+  .stat-card.mc .stat-algo-name     { color: var(--mc-color); }
+
+  .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .stat-item {}
+  .stat-item .k {
+    font-size: 0.6rem; color: var(--dgray); text-transform: uppercase; letter-spacing: 0.06em;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .stat-item .v {
+    font-size: 0.92rem; font-weight: 700; font-family: 'JetBrains Mono', monospace;
+    color: white; margin-top: 1px;
+  }
+  .stat-item .v.optimal { color: var(--green); }
+  .stat-item .v.subopt  { color: var(--gold); }
+  .stat-item .v.na      { color: var(--dgray); }
+
+  .bar-wrap { grid-column: 1/-1; margin-top: 4px; }
+  .bar-label { font-size: 0.6rem; color: var(--dgray); margin-bottom: 3px; font-family: 'JetBrains Mono', monospace; }
+  .bar { height: 4px; border-radius: 2px; background: var(--border); overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 2px; transition: width 0.6s cubic-bezier(.4,0,.2,1); }
+
+  /* ── Legend / status ── */
+  .legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 0.68rem; font-family: 'JetBrains Mono', monospace; }
+  .legend-item { display: flex; align-items: center; gap: 5px; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+
+  .status-bar {
+    background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 14px; font-family: 'JetBrains Mono', monospace; font-size: 0.75rem;
+    min-height: 36px; display: flex; align-items: center; gap: 10px;
+    color: var(--cyan);
+  }
+  .status-dot {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--green); flex-shrink: 0;
+    box-shadow: 0 0 6px var(--green);
+  }
+  .status-dot.running { background: var(--gold); box-shadow: 0 0 6px var(--gold); animation: pulse 0.8s infinite; }
+  .status-dot.error   { background: var(--red);  box-shadow: 0 0 6px var(--red); }
+
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+  /* ── Speed control + mode info ── */
+  .mode-info {
+    background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 14px; font-size: 0.72rem; color: var(--dgray); line-height: 1.6;
+  }
+  .mode-info b { color: var(--cyan); }
+  .mode-info .epsilon-info { color: var(--gold); font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; }
+
+  /* ── Comparison table ── */
+  .cmp-table { width: 100%; border-collapse: collapse; font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; }
+  .cmp-table th {
+    padding: 6px 10px; text-align: left; background: rgba(46,134,171,0.15);
+    color: var(--cyan); font-weight: 700; letter-spacing: 0.05em; border-bottom: 1px solid var(--border);
+  }
+  .cmp-table td { padding: 5px 10px; border-bottom: 1px solid rgba(30,58,95,0.5); color: #CBD5E0; }
+  .cmp-table tr:hover td { background: rgba(79,195,247,0.05); }
+  .cmp-table .best { color: var(--green); font-weight: 700; }
+  .cmp-table .worst { color: var(--red); }
+
+  /* ── Tabs for view modes ── */
+  .view-tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+  .view-tab {
+    padding: 5px 12px; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.04em;
+    text-transform: uppercase; font-family: 'JetBrains Mono', monospace;
+    border: 1px solid var(--border); border-radius: 6px; cursor: pointer;
+    background: var(--card); color: var(--dgray); transition: all 0.15s;
+  }
+  .view-tab.active { background: rgba(79,195,247,0.15); border-color: var(--lblue); color: var(--cyan); }
+  .view-tab:hover:not(.active) { color: white; }
+
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  /* ── Tooltip ── */
+  .tooltip {
+    position: fixed; pointer-events: none; z-index: 999;
+    background: var(--navy); border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 12px; font-family: 'JetBrains Mono', monospace; font-size: 0.72rem;
+    color: var(--cyan); box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    opacity: 0; transition: opacity 0.12s;
+    max-width: 200px; line-height: 1.6;
+  }
+  .tooltip.show { opacity: 1; }
+
+  .draw-hint {
+    font-size: 0.65rem; color: var(--dgray); font-family: 'JetBrains Mono', monospace;
+    margin-top: 6px; text-align: center;
+  }
+
+  /* ── Scrollbar ── */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  /* ── Responsive ── */
+  @media (max-width: 960px) {
+    .main { grid-template-columns: 1fr; }
+    :root { --cell: 22px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- Header -->
+  <header>
+    <div class="header-left">
+      <h1>Planification A* + Chaînes de Markov</h1>
+      <p>ENSET Mohammedia · SDIA · Bases de l'IA — TOUBANI Badr Eddine</p>
+    </div>
+    <div class="header-badges">
+      <span class="badge badge-lblue">UCS</span>
+      <span class="badge badge-lblue">Greedy</span>
+      <span class="badge badge-gold">A*</span>
+      <span class="badge badge-gold">Weighted A*</span>
+      <span class="badge badge-green">Monte-Carlo</span>
+    </div>
+  </header>
+
+  <div class="main">
+
+    <!-- ═══ LEFT — Grid + Controls ═══ -->
+    <div class="grid-area">
+
+      <!-- Algorithm selector -->
+      <div class="card">
+        <div class="card-title">Algorithmes actifs</div>
+        <div class="algo-tabs">
+          <button class="algo-tab active" data-algo="ucs">UCS</button>
+          <button class="algo-tab active" data-algo="greedy">Greedy</button>
+          <button class="algo-tab active" data-algo="astar">A★</button>
+          <button class="algo-tab active" data-algo="wastar">W-A★ (1.5)</button>
+          <button class="algo-tab" data-algo="mc">Monte-Carlo</button>
+        </div>
+
+        <div class="controls-grid">
+          <div class="ctrl-group">
+            <span class="ctrl-label">Taille de la grille</span>
+            <div class="ctrl-row">
+              <input type="range" id="sizeSlider" min="8" max="30" value="15" step="1">
+              <span class="ctrl-val" id="sizeVal">15</span>
+            </div>
+          </div>
+          <div class="ctrl-group">
+            <span class="ctrl-label">Densité obstacles (%)</span>
+            <div class="ctrl-row">
+              <input type="range" class="gold" id="densitySlider" min="5" max="45" value="25" step="5">
+              <span class="ctrl-val" id="densityVal">25%</span>
+            </div>
+          </div>
+          <div class="ctrl-group">
+            <span class="ctrl-label">W-A* poids (w)</span>
+            <div class="ctrl-row">
+              <input type="range" class="green" id="weightSlider" min="10" max="40" value="15" step="1">
+              <span class="ctrl-val" id="weightVal">1.5</span>
+            </div>
+          </div>
+          <div class="ctrl-group">
+            <span class="ctrl-label">Incertitude ε (MC)</span>
+            <div class="ctrl-row">
+              <input type="range" class="gold" id="epsilonSlider" min="0" max="50" value="20" step="5">
+              <span class="ctrl-val" id="epsilonVal">0.20</span>
+            </div>
+          </div>
+          <div class="ctrl-group">
+            <span class="ctrl-label">Simulations MC (N)</span>
+            <div class="ctrl-row">
+              <input type="range" id="mcNSlider" min="50" max="500" value="100" step="50">
+              <span class="ctrl-val" id="mcNVal">100</span>
+            </div>
+          </div>
+          <div class="ctrl-group">
+            <span class="ctrl-label">Vitesse animation</span>
+            <div class="ctrl-row">
+              <input type="range" id="speedSlider" min="1" max="10" value="5" step="1">
+              <span class="ctrl-val" id="speedVal">5</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="btn-row" style="margin-top:12px">
+          <button class="btn btn-run" id="btnRun">▶  Lancer la simulation</button>
+          <button class="btn btn-primary" id="btnStep">⏭  Pas à pas</button>
+          <button class="btn btn-gold" id="btnGenGrid">⟳  Nouvelle grille</button>
+          <button class="btn btn-danger" id="btnReset">✕  Reset</button>
+        </div>
+
+        <div class="status-bar" style="margin-top:10px">
+          <span class="status-dot" id="statusDot"></span>
+          <span id="statusText">Prêt — cliquez sur "Lancer" ou dessinez des obstacles en cliquant sur la grille.</span>
+        </div>
+      </div>
+
+      <!-- Grid canvas -->
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <div class="card-title" style="margin-bottom:0">Grille d'exploration</div>
+          <div class="view-tabs">
+            <button class="view-tab active" data-view="path">Chemin</button>
+            <button class="view-tab" data-view="explored">Exploré</button>
+            <button class="view-tab" data-view="mc">MC Trajectoires</button>
+          </div>
+        </div>
+        <div class="grid-canvas-wrap">
+          <canvas id="gridCanvas"></canvas>
+        </div>
+        <div class="legend" style="margin-top:10px">
+          <span class="legend-item"><span class="legend-dot" style="background:#1E4A7A"></span>Libre</span>
+          <span class="legend-item"><span class="legend-dot" style="background:#0A1525;border:1px solid #2E86AB"></span>Obstacle</span>
+          <span class="legend-item"><span class="legend-dot" style="background:#3BB273"></span>Départ</span>
+          <span class="legend-item"><span class="legend-dot" style="background:#E84855"></span>Arrivée</span>
+          <span class="legend-item"><span class="legend-dot" style="background:var(--ucs-color)"></span>UCS</span>
+          <span class="legend-item"><span class="legend-dot" style="background:var(--greedy-color)"></span>Greedy</span>
+          <span class="legend-item"><span class="legend-dot" style="background:var(--astar-color)"></span>A*</span>
+          <span class="legend-item"><span class="legend-dot" style="background:var(--wastar-color)"></span>W-A*</span>
+          <span class="legend-item"><span class="legend-dot" style="background:var(--mc-color)"></span>MC</span>
+        </div>
+        <p class="draw-hint">Clic gauche = obstacle · Clic droit = effacer · Maj+Clic = déplacer départ · Ctrl+Clic = déplacer arrivée</p>
+      </div>
+
+    </div>
+
+    <!-- ═══ RIGHT — Stats ═══ -->
+    <div class="stats-col">
+
+      <!-- Per-algo stats cards -->
+      <div class="card">
+        <div class="card-title">Statistiques par algorithme</div>
+        <div id="statsContainer" style="display:flex;flex-direction:column;gap:8px">
+          <!-- Injected by JS -->
+        </div>
+      </div>
+
+      <!-- Comparison table -->
+      <div class="card">
+        <div class="card-title">Comparaison globale</div>
+        <div id="cmpTableWrap">
+          <table class="cmp-table" id="cmpTable">
+            <thead>
+              <tr>
+                <th>Algo</th><th>Coût</th><th>Nœuds</th><th>Optimal</th>
+              </tr>
+            </thead>
+            <tbody id="cmpBody">
+              <tr><td colspan="4" style="color:var(--dgray);text-align:center;padding:16px">Lancer la simulation</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- MC info -->
+      <div class="mode-info" id="mcInfo" style="display:none">
+        <b>Monte-Carlo (ε = <span id="mcEpsilonDisp">0.20</span>)</b><br>
+        <span class="epsilon-info">
+          P(GOAL) = <span id="mcPGoal">—</span><br>
+          T̄ = <span id="mcMeanT">—</span> pas<br>
+          Succès = <span id="mcSuccess">—</span> / <span id="mcTotal">—</span>
+        </span>
+      </div>
+
+      <!-- Step info -->
+      <div class="card" id="stepInfo" style="display:none">
+        <div class="card-title">Détail pas à pas</div>
+        <div id="stepDetail" style="font-family:'JetBrains Mono',monospace;font-size:0.72rem;line-height:1.8;color:var(--cyan)"></div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- Tooltip -->
+<div class="tooltip" id="tooltip"></div>
+
+<script>
+/* ================================================================
+   PATHFINDING SIMULATION — Full implementation
+   All algorithms: UCS, Greedy, A*, Weighted A*, Monte-Carlo
+================================================================ */
+
+// ── Constants ──────────────────────────────────────────────────
+const CELL = 28;
+const DIRS = [[-1,0],[1,0],[0,-1],[0,1]]; // up, down, left, right
+
+const ALGO_COLORS = {
+  ucs:    '#F4A261',
+  greedy: '#E84855',
+  astar:  '#4FC3F7',
+  wastar: '#3BB273',
+  mc:     '#9B5DE5',
+};
+
+const ALGO_NAMES = {
+  ucs: 'UCS', greedy: 'Greedy', astar: 'A★', wastar: 'W-A★', mc: 'Monte-Carlo'
+};
+
+// ── State ──────────────────────────────────────────────────────
+let G = {
+  rows: 15, cols: 15,
+  grid: [],      // 0=free, 1=wall
+  start: [1,1],
+  goal: [13,13],
+};
+
+let results = {};       // algo => {path, explored, cost, nodes, time}
+let mcTrajectories = []; // array of paths from MC
+
+let activeAlgos = new Set(['ucs','greedy','astar','wastar']);
+let viewMode = 'path';
+let isRunning = false;
+let stepMode = false;
+let stepState = null;
+let animFrame = null;
+let animQueue = [];  // for animated drawing
+let mouseDown = false;
+let mouseBtn = 0;
+let drawMode = '';  // 'wall','erase','start','goal'
+let isDirty = false;
+
+// ── Canvas ─────────────────────────────────────────────────────
+const canvas = document.getElementById('gridCanvas');
+const ctx = canvas.getContext('2d');
+
+function resizeCanvas() {
+  const size = G.rows;
+  canvas.width  = G.cols * CELL;
+  canvas.height = G.rows * CELL;
+}
+
+// ── Grid generation ────────────────────────────────────────────
+function generateGrid(rows, cols, density) {
+  G.rows = rows; G.cols = cols;
+  G.grid = Array.from({length:rows}, () => new Array(cols).fill(0));
+  // Place obstacles
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      if (Math.random() < density / 100) G.grid[r][c] = 1;
+    }
+  }
+  // Ensure start + goal are clear
+  const sr = 1, sc = 1, gr = rows-2, gc = cols-2;
+  G.start = [sr, sc]; G.goal = [gr, gc];
+  G.grid[sr][sc] = 0; G.grid[gr][gc] = 0;
+
+  // BFS connectivity check + carve path if needed
+  if (!bfsConnected()) carvePath();
+
+  resizeCanvas();
+  results = {}; mcTrajectories = [];
+  return G;
+}
+
+function bfsConnected() {
+  const [sr,sc] = G.start, [gr,gc] = G.goal;
+  const visited = new Uint8Array(G.rows * G.cols);
+  const q = [[sr,sc]];
+  visited[sr*G.cols+sc] = 1;
+  while (q.length) {
+    const [r,c] = q.shift();
+    if (r === gr && c === gc) return true;
+    for (const [dr,dc] of DIRS) {
+      const nr=r+dr, nc=c+dc;
+      if (nr<0||nr>=G.rows||nc<0||nc>=G.cols) continue;
+      if (G.grid[nr][nc]===1 || visited[nr*G.cols+nc]) continue;
+      visited[nr*G.cols+nc] = 1;
+      q.push([nr,nc]);
+    }
+  }
+  return false;
+}
+
+function carvePath() {
+  // Simple random walk from start to goal
+  let [r,c] = G.start;
+  const [gr,gc] = G.goal;
+  const seen = new Set();
+  while (r !== gr || c !== gc) {
+    const key = r+','+c;
+    if (seen.has(key)) break;
+    seen.add(key);
+    G.grid[r][c] = 0;
+    const options = [];
+    if (r < gr) options.push([r+1,c]);
+    if (c < gc) options.push([r,c+1]);
+    if (r > gr) options.push([r-1,c]);
+    if (c > gc) options.push([r,c-1]);
+    if (options.length === 0) break;
+    [r,c] = options[Math.floor(Math.random()*options.length)];
+  }
+  G.grid[gr][gc] = 0;
+}
+
+// ── Heuristics ─────────────────────────────────────────────────
+function manhattan(r,c,gr,gc) { return Math.abs(r-gr) + Math.abs(c-gc); }
+function zero()                { return 0; }
+
+// ── Priority Queue (min-heap) ───────────────────────────────────
+class MinHeap {
+  constructor() { this.data = []; }
+  push(item) {
+    this.data.push(item);
+    this._bubbleUp(this.data.length-1);
+  }
+  pop() {
+    const top = this.data[0];
+    const last = this.data.pop();
+    if (this.data.length > 0) {
+      this.data[0] = last;
+      this._sinkDown(0);
+    }
+    return top;
+  }
+  get size() { return this.data.length; }
+  _bubbleUp(i) {
+    while (i > 0) {
+      const p = (i-1)>>1;
+      if (this.data[p][0] <= this.data[i][0]) break;
+      [this.data[p], this.data[i]] = [this.data[i], this.data[p]];
+      i = p;
+    }
+  }
+  _sinkDown(i) {
+    const n = this.data.length;
+    while (true) {
+      let min = i;
+      const l=2*i+1, r=2*i+2;
+      if (l<n && this.data[l][0] < this.data[min][0]) min=l;
+      if (r<n && this.data[r][0] < this.data[min][0]) min=r;
+      if (min===i) break;
+      [this.data[min], this.data[i]] = [this.data[i], this.data[min]];
+      i = min;
+    }
+  }
+}
+
+// ── Generic search algorithm ────────────────────────────────────
+function search(mode, weight=1.5) {
+  const {rows, cols, grid, start, goal} = G;
+  const [sr,sc] = start, [gr,gc] = goal;
+  const t0 = performance.now();
+
+  // g[r][c] = best cost so far
+  const g = Array.from({length:rows}, ()=>new Float32Array(cols).fill(Infinity));
+  const parent = new Array(rows*cols).fill(-1);
+  const explored = []; // cells in order they were explored
+
+  g[sr][sc] = 0;
+  const heap = new MinHeap();
+
+  function heur(r,c) {
+    if (mode==='ucs')    return zero();
+    if (mode==='greedy') return manhattan(r,c,gr,gc);
+    if (mode==='astar')  return manhattan(r,c,gr,gc);
+    if (mode==='wastar') return manhattan(r,c,gr,gc);
+    return 0;
+  }
+  function fval(gv, r, c) {
+    const h = heur(r,c);
+    if (mode==='ucs')    return gv;
+    if (mode==='greedy') return h;
+    if (mode==='astar')  return gv + h;
+    if (mode==='wastar') return gv + weight * h;
+    return gv + h;
+  }
+
+  heap.push([fval(0,sr,sc), 0, sr, sc]); // [f, g, r, c]
+  const closed = new Uint8Array(rows*cols);
+  let nodes = 0;
+
+  while (heap.size > 0) {
+    const [,gv,r,c] = heap.pop();
+    const idx = r*cols+c;
+    if (closed[idx]) continue;
+    closed[idx] = 1;
+    explored.push([r,c]);
+    nodes++;
+
+    if (r===gr && c===gc) {
+      // Reconstruct path
+      const path = [];
+      let cur = idx;
+      while (cur !== -1) {
+        path.push([Math.floor(cur/cols), cur%cols]);
+        cur = parent[cur];
+      }
+      path.reverse();
+      return { path, explored, cost: Math.round(gv), nodes, time: performance.now()-t0 };
+    }
+
+    for (const [dr,dc] of DIRS) {
+      const nr=r+dr, nc=c+dc;
+      if (nr<0||nr>=rows||nc<0||nc>=cols) continue;
+      if (grid[nr][nc]===1) continue;
+      const nidx = nr*cols+nc;
+      if (closed[nidx]) continue;
+      const ng = gv + 1;
+      if (ng < g[nr][nc]) {
+        g[nr][nc] = ng;
+        parent[nidx] = idx;
+        heap.push([fval(ng,nr,nc), ng, nr, nc]);
+      }
+    }
+  }
+  return { path:[], explored, cost:Infinity, nodes, time: performance.now()-t0 };
+}
+
+// ── Monte-Carlo simulation ──────────────────────────────────────
+function runMonteCarlo(epsilon, N, tMax=200) {
+  const {rows, cols, grid, start, goal} = G;
+  const [gr,gc] = goal;
+
+  // First get A* path to define policy
+  const astarResult = search('astar');
+  if (astarResult.path.length === 0) return {trajectories:[], pGoal:0, meanT:Infinity, successes:0};
+
+  // Build policy map from A* path
+  const policy = new Map();
+  for (let i = 0; i < astarResult.path.length - 1; i++) {
+    const [r,c] = astarResult.path[i];
+    const [nr,nc] = astarResult.path[i+1];
+    policy.set(r*cols+c, [nr-r, nc-c]);
+  }
+  // For cells off-path, find closest path cell direction
+  function getAction(r,c) {
+    const k = r*cols+c;
+    if (policy.has(k)) return policy.get(k);
+    // fallback: head towards goal with manhattan
+    const drs = DIRS.filter(([dr,dc])=>{
+      const nr=r+dr,nc=c+dc;
+      return nr>=0&&nr<rows&&nc>=0&&nc<cols&&grid[nr][nc]===0;
+    });
+    if (drs.length===0) return [0,0];
+    drs.sort((a,b)=>manhattan(r+a[0],c+a[1],gr,gc)-manhattan(r+b[0],c+b[1],gr,gc));
+    return drs[0];
+  }
+
+  const trajectories = [];
+  let successes = 0;
+  let totalT = 0;
+
+  for (let n = 0; n < N; n++) {
+    let [r,c] = start;
+    const traj = [[r,c]];
+    let reached = false;
+
+    for (let t = 0; t < tMax; t++) {
+      if (r===gr && c===gc) { reached=true; break; }
+      const [dr,dc] = getAction(r,c);
+      if (dr===0&&dc===0) break;
+
+      // Stochastic: with prob ε deviate to a lateral direction
+      let ar=dr, ac=dc;
+      const rnd = Math.random();
+      if (rnd < epsilon) {
+        // Lateral = perpendicular to intended
+        const laterals = dc===0 ? [[dr,-1],[dr,1]] : [[-1,dc],[1,dc]];
+        const lat = laterals[Math.random()<0.5?0:1];
+        ar=lat[0]; ac=lat[1];
+      }
+      const nr=r+ar, nc=c+ac;
+      if (nr>=0&&nr<rows&&nc>=0&&nc<cols&&grid[nr][nc]===0) {
+        r=nr; c=nc;
+      }
+      traj.push([r,c]);
+    }
+    if (r===gr && c===gc) { successes++; totalT+=traj.length-1; }
+    trajectories.push(traj);
+  }
+
+  return {
+    trajectories,
+    pGoal: successes/N,
+    meanT: successes>0 ? totalT/successes : Infinity,
+    successes,
+    N,
+  };
+}
+
+// ── Drawing ─────────────────────────────────────────────────────
+const COL = {
+  free:    '#1A3452',
+  wall:    '#07111F',
+  start:   '#3BB273',
+  goal:    '#E84855',
+  border:  '#243F60',
+  ucs_exp:    'rgba(244,162,97,0.12)',
+  greedy_exp: 'rgba(232,72,85,0.12)',
+  astar_exp:  'rgba(79,195,247,0.12)',
+  wastar_exp: 'rgba(59,178,115,0.12)',
+  mc_exp:     'rgba(155,93,229,0.12)',
+};
+
+function drawGrid() {
+  const {rows,cols,grid,start,goal} = G;
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  for (let r=0; r<rows; r++) {
+    for (let c=0; c<cols; c++) {
+      const x=c*CELL, y=r*CELL;
+      // Base cell
+      ctx.fillStyle = grid[r][c]===1 ? COL.wall : COL.free;
+      ctx.fillRect(x,y,CELL,CELL);
+      // Grid lines
+      ctx.strokeStyle = COL.border;
+      ctx.lineWidth = 0.5;
+      ctx.strokeRect(x+0.5,y+0.5,CELL-1,CELL-1);
+    }
+  }
+
+  // Overlays depending on view mode
+  if (viewMode==='explored') {
+    drawExplored();
+  } else if (viewMode==='mc') {
+    drawMCTrajectories();
+  }
+
+  // Draw paths
+  if (viewMode==='path' || viewMode==='explored') {
+    drawPaths();
+  }
+
+  // Start / Goal
+  drawMarker(start[0],start[1], COL.start, 'S');
+  drawMarker(goal[0],goal[1],   COL.goal,  'G');
+}
+
+function drawExplored() {
+  const algoOrder = ['ucs','greedy','astar','wastar'];
+  for (const algo of algoOrder) {
+    if (!activeAlgos.has(algo) || !results[algo]) continue;
+    const expColor = COL[algo+'_exp'];
+    ctx.fillStyle = expColor;
+    for (const [r,c] of results[algo].explored) {
+      ctx.fillRect(c*CELL+1,r*CELL+1,CELL-2,CELL-2);
+    }
+  }
+}
+
+function drawPaths() {
+  const algoOrder = ['ucs','greedy','astar','wastar'];
+  for (const algo of algoOrder) {
+    if (!activeAlgos.has(algo) || !results[algo]) continue;
+    const path = results[algo].path;
+    if (!path || path.length===0) continue;
+    drawPath(path, ALGO_COLORS[algo], algo==='astar' ? 3 : 2);
+  }
+}
+
+function drawPath(path, color, lineW=2) {
+  if (path.length < 2) return;
+  ctx.beginPath();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = lineW;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 6;
+  ctx.moveTo(path[0][1]*CELL+CELL/2, path[0][0]*CELL+CELL/2);
+  for (let i=1; i<path.length; i++) {
+    ctx.lineTo(path[i][1]*CELL+CELL/2, path[i][0]*CELL+CELL/2);
+  }
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  // Direction dots on path
+  ctx.fillStyle = color;
+  for (const [r,c] of path) {
+    ctx.beginPath();
+    ctx.arc(c*CELL+CELL/2, r*CELL+CELL/2, 2, 0, Math.PI*2);
+    ctx.fill();
+  }
+}
+
+function drawMCTrajectories() {
+  if (mcTrajectories.length===0) return;
+  const show = Math.min(mcTrajectories.length, 20);
+  for (let i=0; i<show; i++) {
+    const traj = mcTrajectories[i];
+    const reached = traj[traj.length-1][0]===G.goal[0] && traj[traj.length-1][1]===G.goal[1];
+    const col = reached ? 'rgba(155,93,229,0.35)' : 'rgba(232,72,85,0.2)';
+    ctx.beginPath();
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 1;
+    ctx.moveTo(traj[0][1]*CELL+CELL/2, traj[0][0]*CELL+CELL/2);
+    for (let j=1; j<traj.length; j++) {
+      ctx.lineTo(traj[j][1]*CELL+CELL/2, traj[j][0]*CELL+CELL/2);
+    }
+    ctx.stroke();
+  }
+  // Also draw A* path on top
+  if (results.astar?.path?.length > 0) {
+    drawPath(results.astar.path, ALGO_COLORS.astar, 2.5);
+  }
+}
+
+function drawMarker(r, c, color, label) {
+  const x=c*CELL, y=r*CELL, s=CELL;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.roundRect(x+2,y+2,s-4,s-4, 4);
+  ctx.fill();
+  ctx.fillStyle = 'white';
+  ctx.font = `bold ${Math.floor(s*0.45)}px JetBrains Mono, monospace`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(label, x+s/2, y+s/2);
+}
+
+// Animate path drawing sequentially
+let animPaths = []; // [{path,color,lineW}]
+let animStep = 0;
+let animIdx = 0;
+
+function animatePaths(pathList, onDone) {
+  animPaths = pathList;
+  animStep = 0; animIdx = 0;
+  cancelAnimationFrame(animFrame);
+  _animTick(onDone);
+}
+
+function _animTick(onDone) {
+  if (animIdx >= animPaths.length) {
+    if (onDone) onDone();
+    return;
+  }
+  const {path, color, lineW} = animPaths[animIdx];
+  const speed = parseInt(document.getElementById('speedSlider').value);
+  const stepsPerFrame = Math.max(1, Math.floor(speed * 1.5));
+
+  drawGrid();
+
+  // Draw completed paths
+  for (let i=0; i<animIdx; i++) {
+    const p = animPaths[i];
+    drawPath(p.path, p.color, p.lineW);
+  }
+
+  // Draw current path up to animStep
+  const partial = path.slice(0, animStep);
+  if (partial.length > 1) drawPath(partial, color, lineW);
+
+  // Explored cells highlight for current
+  const algo = animPaths[animIdx].algo;
+  if (algo && results[algo] && viewMode==='explored') {
+    const expFrac = Math.floor((animStep / path.length) * results[algo].explored.length);
+    ctx.fillStyle = COL[algo+'_exp'] || 'rgba(79,195,247,0.1)';
+    for (let i=0; i<expFrac; i++) {
+      const [r,c] = results[algo].explored[i];
+      ctx.fillRect(c*CELL+1,r*CELL+1,CELL-2,CELL-2);
+    }
+  }
+
+  drawMarker(G.start[0],G.start[1], COL.start, 'S');
+  drawMarker(G.goal[0],G.goal[1],   COL.goal,  'G');
+
+  animStep += stepsPerFrame;
+  if (animStep >= path.length) {
+    animStep = path.length;
+    animIdx++;
+    animFrame = requestAnimationFrame(()=>_animTick(onDone));
+  } else {
+    animFrame = requestAnimationFrame(()=>_animTick(onDone));
+  }
+}
+
+// ── Run all algorithms ──────────────────────────────────────────
+function runAll() {
+  if (isRunning) return;
+  isRunning = true;
+  setStatus('running', 'Calcul en cours...');
+  document.getElementById('btnRun').disabled = true;
+
+  results = {};
+  const w = parseFloat(document.getElementById('weightSlider').value)/10;
+
+  // Run all deterministic algos synchronously (they're fast)
+  const toRun = [];
+  for (const algo of activeAlgos) {
+    if (algo==='mc') continue;
+    const res = search(algo, w);
+    results[algo] = res;
+    toRun.push({path: res.path, color: ALGO_COLORS[algo], lineW: algo==='astar'?3:2, algo});
+  }
+
+  // Monte Carlo if active
+  if (activeAlgos.has('mc')) {
+    const eps = parseInt(document.getElementById('epsilonSlider').value)/100;
+    const N   = parseInt(document.getElementById('mcNSlider').value);
+    const mc = runMonteCarlo(eps, N);
+    mcTrajectories = mc.trajectories;
+    updateMCStats(mc);
+  }
+
+  updateStatsUI();
+  updateCmpTable();
+
+  // Animate paths
+  const pathsToAnimate = toRun.filter(p=>p.path.length>0);
+  if (pathsToAnimate.length === 0) {
+    drawGrid();
+    setStatus('error', 'Aucun chemin trouvé — essayez une nouvelle grille.');
+    isRunning = false;
+    document.getElementById('btnRun').disabled = false;
+    return;
+  }
+
+  animatePaths(pathsToAnimate, () => {
+    drawGrid(); // Final full draw with all paths
+    isRunning = false;
+    document.getElementById('btnRun').disabled = false;
+    const solved = pathsToAnimate.length;
+    const total  = [...activeAlgos].filter(a=>a!=='mc').length;
+    setStatus('ok', `Terminé — ${solved}/${total} algorithmes ont trouvé un chemin.`);
+  });
+}
+
+// ── UI updates ──────────────────────────────────────────────────
+function setStatus(type, msg) {
+  const dot  = document.getElementById('statusDot');
+  const text = document.getElementById('statusText');
+  dot.className = 'status-dot' + (type==='running'?' running':type==='error'?' error':'');
+  text.textContent = msg;
+}
+
+function updateStatsUI() {
+  const container = document.getElementById('statsContainer');
+  container.innerHTML = '';
+  const optimalCost = results.ucs?.cost ?? results.astar?.cost ?? null;
+
+  const algoOrder = ['ucs','greedy','astar','wastar','mc'];
+  for (const algo of algoOrder) {
+    if (!activeAlgos.has(algo)) continue;
+    if (!results[algo] && algo!=='mc') continue;
+
+    const res = results[algo] || {};
+    const card = document.createElement('div');
+    card.className = `stat-card ${algo}`;
+
+    const cost = res.cost ?? '—';
+    const isOptimal = optimalCost !== null && cost === optimalCost;
+    const isInf = !isFinite(cost);
+    const costClass = isInf ? 'na' : isOptimal ? 'optimal' : 'subopt';
+    const costLabel = isInf ? '✗' : cost;
+
+    const barPct = res.nodes && results.ucs?.nodes
+      ? Math.min(100, Math.round((res.nodes / results.ucs.nodes) * 100))
+      : 0;
+
+    card.innerHTML = `
+      <div class="stat-algo-name">${ALGO_NAMES[algo]}</div>
+      <div class="stat-grid">
+        <div class="stat-item">
+          <div class="k">Coût</div>
+          <div class="v ${costClass}">${costLabel}</div>
+        </div>
+        <div class="stat-item">
+          <div class="k">Nœuds</div>
+          <div class="v">${res.nodes ?? '—'}</div>
+        </div>
+        <div class="stat-item">
+          <div class="k">Longueur</div>
+          <div class="v">${res.path?.length-1 ?? '—'}</div>
+        </div>
+        <div class="stat-item">
+          <div class="k">Temps</div>
+          <div class="v">${res.time ? res.time.toFixed(2)+'ms' : '—'}</div>
+        </div>
+        ${res.nodes ? `
+        <div class="bar-wrap">
+          <div class="bar-label">Nœuds vs UCS</div>
+          <div class="bar"><div class="bar-fill" style="width:${barPct}%;background:${ALGO_COLORS[algo]}"></div></div>
+        </div>` : ''}
+      </div>`;
+    container.appendChild(card);
+  }
+}
+
+function updateCmpTable() {
+  const tbody = document.getElementById('cmpBody');
+  tbody.innerHTML = '';
+  const algos = ['ucs','greedy','astar','wastar'].filter(a=>activeAlgos.has(a) && results[a]);
+  if (algos.length===0) { tbody.innerHTML='<tr><td colspan="4" style="color:var(--dgray);text-align:center;padding:12px">Lancer la simulation</td></tr>'; return; }
+
+  const minCost  = Math.min(...algos.map(a=>results[a].cost));
+  const minNodes = Math.min(...algos.map(a=>results[a].nodes));
+  const maxNodes = Math.max(...algos.map(a=>results[a].nodes));
+
+  for (const algo of algos) {
+    const r = results[algo];
+    const row = document.createElement('tr');
+    const costClass = r.cost===minCost ? 'best' : r.cost>minCost*1.1 ? 'worst' : '';
+    const nodesClass = r.nodes===minNodes ? 'best' : r.nodes===maxNodes ? 'worst' : '';
+    row.innerHTML = `
+      <td style="color:${ALGO_COLORS[algo]};font-weight:700">${ALGO_NAMES[algo]}</td>
+      <td class="${costClass}">${isFinite(r.cost)?r.cost:'✗'}</td>
+      <td class="${nodesClass}">${r.nodes}</td>
+      <td>${r.cost===minCost ? '<span style="color:var(--green)">✓</span>' : '<span style="color:var(--dgray)">—</span>'}</td>`;
+    tbody.appendChild(row);
+  }
+}
+
+function updateMCStats(mc) {
+  document.getElementById('mcInfo').style.display = 'block';
+  document.getElementById('mcEpsilonDisp').textContent = (parseInt(document.getElementById('epsilonSlider').value)/100).toFixed(2);
+  document.getElementById('mcPGoal').textContent = (mc.pGoal*100).toFixed(1)+'%';
+  document.getElementById('mcMeanT').textContent = isFinite(mc.meanT) ? mc.meanT.toFixed(1) : '∞';
+  document.getElementById('mcSuccess').textContent = mc.successes;
+  document.getElementById('mcTotal').textContent = mc.N;
+}
+
+// ── View mode ───────────────────────────────────────────────────
+function setViewMode(mode) {
+  viewMode = mode;
+  document.querySelectorAll('.view-tab').forEach(t => t.classList.toggle('active', t.dataset.view===mode));
+  if (mode==='mc') { document.getElementById('mcInfo').style.display = activeAlgos.has('mc') ? 'block':'none'; }
+  drawGrid();
+}
+
+// ── Mouse interaction ────────────────────────────────────────────
+canvas.addEventListener('mousedown', e => {
+  e.preventDefault();
+  mouseDown = true;
+  mouseBtn = e.button;
+  const {r,c} = getCellFromEvent(e);
+  if (e.shiftKey) { drawMode='start'; }
+  else if (e.ctrlKey||e.metaKey) { drawMode='goal'; }
+  else if (e.button===2) { drawMode='erase'; }
+  else { drawMode='wall'; }
+  applyDraw(r,c);
+});
+canvas.addEventListener('mousemove', e => {
+  if (!mouseDown) { showTooltip(e); return; }
+  const {r,c} = getCellFromEvent(e);
+  applyDraw(r,c);
+});
+canvas.addEventListener('mouseup', ()=>{ mouseDown=false; drawMode=''; });
+canvas.addEventListener('mouseleave', ()=>{ mouseDown=false; hideTooltip(); });
+canvas.addEventListener('contextmenu', e=>e.preventDefault());
+
+function getCellFromEvent(e) {
+  const rect = canvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+  return { r: Math.floor(y/CELL), c: Math.floor(x/CELL) };
+}
+
+function applyDraw(r,c) {
+  if (r<0||r>=G.rows||c<0||c>=G.cols) return;
+  if (drawMode==='start') { G.grid[r][c]=0; G.start=[r,c]; isDirty=true; }
+  else if (drawMode==='goal') { G.grid[r][c]=0; G.goal=[r,c]; isDirty=true; }
+  else if (drawMode==='wall') {
+    if ((r===G.start[0]&&c===G.start[1])||(r===G.goal[0]&&c===G.goal[1])) return;
+    G.grid[r][c]=1; isDirty=true;
+  }
+  else if (drawMode==='erase') { G.grid[r][c]=0; isDirty=true; }
+  if (isDirty) { results={}; mcTrajectories=[]; drawGrid(); isDirty=false; }
+}
+
+function showTooltip(e) {
+  const {r,c} = getCellFromEvent(e);
+  if (r<0||r>=G.rows||c<0||c>=G.cols) { hideTooltip(); return; }
+  const tip = document.getElementById('tooltip');
+  let lines = [`Cellule (${r},${c})`, G.grid[r][c]===1?'Obstacle':'Libre'];
+  for (const algo of ['ucs','greedy','astar','wastar']) {
+    if (!results[algo]) continue;
+    const onPath = results[algo].path?.some(([pr,pc])=>pr===r&&pc===c);
+    const explored = results[algo].explored?.some(([pr,pc])=>pr===r&&pc===c);
+    if (onPath) lines.push(`${ALGO_NAMES[algo]}: sur le chemin ✓`);
+    else if (explored) lines.push(`${ALGO_NAMES[algo]}: exploré`);
+  }
+  tip.innerHTML = lines.join('<br>');
+  tip.style.left = (e.clientX+14)+'px';
+  tip.style.top  = (e.clientY-10)+'px';
+  tip.classList.add('show');
+}
+function hideTooltip() {
+  document.getElementById('tooltip').classList.remove('show');
+}
+
+// ── Controls wiring ─────────────────────────────────────────────
+document.getElementById('sizeSlider').addEventListener('input', e=>{
+  document.getElementById('sizeVal').textContent = e.target.value;
+});
+document.getElementById('densitySlider').addEventListener('input', e=>{
+  document.getElementById('densityVal').textContent = e.target.value+'%';
+});
+document.getElementById('weightSlider').addEventListener('input', e=>{
+  document.getElementById('weightVal').textContent = (parseInt(e.target.value)/10).toFixed(1);
+});
+document.getElementById('epsilonSlider').addEventListener('input', e=>{
+  document.getElementById('epsilonVal').textContent = (parseInt(e.target.value)/100).toFixed(2);
+});
+document.getElementById('mcNSlider').addEventListener('input', e=>{
+  document.getElementById('mcNVal').textContent = e.target.value;
+});
+document.getElementById('speedSlider').addEventListener('input', e=>{
+  document.getElementById('speedVal').textContent = e.target.value;
+});
+
+document.getElementById('btnRun').addEventListener('click', ()=>{
+  cancelAnimationFrame(animFrame);
+  runAll();
+});
+
+document.getElementById('btnGenGrid').addEventListener('click', ()=>{
+  cancelAnimationFrame(animFrame);
+  const size = parseInt(document.getElementById('sizeSlider').value);
+  const density = parseInt(document.getElementById('densitySlider').value);
+  generateGrid(size, size, density);
+  results={}; mcTrajectories=[];
+  updateStatsUI(); updateCmpTable();
+  drawGrid();
+  setStatus('ok','Nouvelle grille générée. Cliquez sur "Lancer".');
+  document.getElementById('mcInfo').style.display='none';
+});
+
+document.getElementById('btnReset').addEventListener('click', ()=>{
+  cancelAnimationFrame(animFrame);
+  results={}; mcTrajectories=[];
+  isRunning=false;
+  document.getElementById('btnRun').disabled=false;
+  drawGrid();
+  updateStatsUI(); updateCmpTable();
+  setStatus('ok','Reset — grille conservée.');
+  document.getElementById('mcInfo').style.display='none';
+});
+
+// Step button — run one algorithm step by step
+document.getElementById('btnStep').addEventListener('click', ()=>{
+  if (isRunning) return;
+  const infoDiv = document.getElementById('stepInfo');
+  infoDiv.style.display = 'block';
+  const detail = document.getElementById('stepDetail');
+
+  // Quick run all and show stats
+  results={};
+  const w = parseFloat(document.getElementById('weightSlider').value)/10;
+  for (const algo of activeAlgos) {
+    if (algo==='mc') continue;
+    results[algo] = search(algo, w);
+  }
+  updateStatsUI(); updateCmpTable();
+  drawGrid();
+
+  let txt = '';
+  for (const algo of ['ucs','greedy','astar','wastar']) {
+    if (!activeAlgos.has(algo)||!results[algo]) continue;
+    const r = results[algo];
+    txt += `<span style="color:${ALGO_COLORS[algo]}">${ALGO_NAMES[algo]}</span>\n`;
+    txt += `  coût=${r.cost}  nœuds=${r.nodes}  len=${r.path.length-1}\n\n`;
+  }
+  detail.innerHTML = txt || 'Aucun résultat';
+  setStatus('ok','Calcul instantané terminé.');
+});
+
+// Algo tabs toggle
+document.querySelectorAll('.algo-tab').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    const algo = btn.dataset.algo;
+    if (activeAlgos.has(algo)) {
+      if (activeAlgos.size > 1) { activeAlgos.delete(algo); btn.classList.remove('active'); }
+    } else {
+      activeAlgos.add(algo); btn.classList.add('active');
+    }
+    drawGrid();
+  });
+});
+
+// View tabs
+document.querySelectorAll('.view-tab').forEach(btn=>{
+  btn.addEventListener('click', ()=>setViewMode(btn.dataset.view));
+});
+
+// ── Init ────────────────────────────────────────────────────────
+function init() {
+  generateGrid(15,15,25);
+  drawGrid();
+  setStatus('ok','Prêt — cliquez "Lancer" pour démarrer la simulation.');
+  // Init stats
+  updateStatsUI();
+  updateCmpTable();
+}
+
+// Ensure roundRect polyfill
+if (!CanvasRenderingContext2D.prototype.roundRect) {
+  CanvasRenderingContext2D.prototype.roundRect = function(x,y,w,h,r) {
+    r = Math.min(r, w/2, h/2);
+    this.beginPath();
+    this.moveTo(x+r,y);
+    this.arcTo(x+w,y,x+w,y+h,r);
+    this.arcTo(x+w,y+h,x,y+h,r);
+    this.arcTo(x,y+h,x,y,r);
+    this.arcTo(x,y,x+w,y,r);
+    this.closePath();
+  };
+}
+
+init();
+</script>
+</body>
+</html>
