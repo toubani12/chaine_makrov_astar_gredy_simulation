@@ -599,43 +599,13 @@ python -m http.server 8000
 
 ### 📸 Captures de la Simulation
 
-#### État initial — Grilles avec chemins A\*, UCS et Greedy calculés
 
-<div align="center">
-
-![Simulation — État initial avec les trois algorithmes](simulation_initial.png)
-
-*Les trois panneaux affichent simultanément les chemins trouvés par A\* (f=g+h), UCS (f=g) et Greedy (f=h) sur une grille 15×15 avec ε=0.15. Métriques affichées : nœuds, coût, déviations, étape courante.*
-
-</div>
-
-#### Simulation en cours — Robots naviguant avec déviations Markov
-
-<div align="center">
-
-![Simulation — Robots en mouvement avec déviations stochastiques (ε=0.15)](simulation_running.png)
-
-*Les robots suivent leur chemin planifié avec des déviations stochastiques. A\* : 5 déviations, UCS : 1 déviation, Greedy : 3 déviations au step 33/30/148 respectivement. La trajectoire cyan montre le chemin réellement parcouru vs le chemin planifié (violet).*
-
-</div>
-
-#### Impact de ε=0.50 — Forte incertitude
-
-<div align="center">
-
-![Simulation — Forte incertitude ε=0.50](simulation_epsilon_high.png)
-
-*Avec ε=0.50, les déviations sont beaucoup plus fréquentes. Le Greedy atteint l'étape 200 sans avoir rejoint le GOAL, illustrant la dégradation critique au-delà du seuil ε\*≈0.35 identifié dans l'analyse théorique.*
-
-</div>
 
 ### 🎬 Vidéo de Démonstration
 
 <div align="center">
 
-![Démo vidéo de la simulation interactive — A\*, UCS, Greedy avec effets Markov](simulation_demo.webp)
-
-*Enregistrement de la simulation : démarrage, navigation des robots, augmentation de ε de 0.15 à 0.50 montrant l'impact de l'incertitude sur les trajectoires.*
+[simul.webm](https://github.com/user-attachments/assets/624196e3-885a-452d-b7af-20e90861e881)
 
 </div>
 
@@ -644,6 +614,7 @@ python -m http.server 8000
 ## 📓 Notebook Reproductible
 
 Le notebook [`projet_experiments.ipynb`](projet_experiments.ipynb) reproduit **l'intégralité des 8 expériences** de manière interactive :
+
 
 ```bash
 jupyter notebook projet_experiments.ipynb
